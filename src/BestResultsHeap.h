@@ -1,22 +1,30 @@
 #pragma once
 #include "AlignmentResult.h"
 #include <cstdint>
+#include <vector>
 
-// Fixed-capacity max-heap ordered by mismatch count.
-//
-// We keep the N BEST (lowest-mismatch) results seen so far, where N is the
-// capacity passed to the constructor (default 15).
-// A max-heap: the root is always the WORST result
-// AMONG those currently stored, so we can check in O(1)
-// whether a new candidate is worth
-// keeping, and evict the root in O(log N) when it is.
-//
-// 
-// The underlying storage is a raw heap-allocated array of AlignmentResult.
-//
+namespace dna {
+    
 class BestResultsHeap {
 public:
-    //a vous de jouer
+    BestResultsHeap(const int& p_capacity = 15);
+
+    void insert(const AlignmentResult& result);
+    const AlignmentResult getBest() const;
+
+    bool isEmpty() const;
+    bool isFull() const;
+    int getCapacity() const;
+    size_t getSize() const;
+    
 private:
-    //a vous de jouer
+    
+    std::vector<AlignmentResult> m_data;
+    int m_capacity;
+    
+    //Methodes internes
+    void siftUp(int p_index);
+    void siftDown(int p_index);
 };
+
+}
