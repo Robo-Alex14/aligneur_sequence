@@ -3,10 +3,20 @@
 #include "GenomicPosition.h"
 #include <cstdint>
 
-// Singly-linked list of Nodes used as a hash-bucket collision chain.
+
+namespace dna{
+
+//Chaine de collision (contient/gerer la memoire des nodes) 
 class LinkedList {
 public:
-    //a vous de jouer
-private:
-    //a vous de jouer
+    LinkedList();
+    ~LinkedList();
+    
+    void insert(const uint64_t& p_kmer, const GenomicPosition& p_pos);
+    Node* first() const;
+    
+private:    
+    Node* m_head;
 };
+
+}
