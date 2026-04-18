@@ -2,10 +2,16 @@
 #include "GenomicPosition.h"
 #include <cstdint>
 
-// Singly-linked list node.
-// Stores the 2-bit encoded kmer code alongside the GenomicPosition so that
-// hash-bucket chain walkers can reject nodes from colliding kmers.
+namespace dna{
+    
+//Represente un Kmer    
 class Node {
-public:
-    //a vous de jouer
+    public:
+        Node(const uint64_t& p_kmer, const GenomicPosition& p_pos);
+     
+        uint64_t m_kmerCode;
+        GenomicPosition m_position;
+        Node* m_next;
 };
+}
+
