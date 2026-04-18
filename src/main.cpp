@@ -34,6 +34,8 @@
 #include <cstdlib>
 #include <cstdint>
 
+using namespace dna;
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Sanitize a raw sequence string in-place.
 // Every byte is run through BASE_LUT; if INVALID, replace with 'X'
@@ -140,18 +142,37 @@ static void buildIndex(HashTable&       ht,
     const uint64_t mask = (k < 32)
                           ? ((uint64_t(1) << (2 * k)) - 1)
                           : ~uint64_t(0);
-
-    for (uint32_t ri = 0; ri < static_cast<uint32_t>(genome.size()); ++ri) {//for each record in the FASTA file
+    
+    for (uint32_t ri = 0; ri < static_cast<uint32_t>(genome.size()); ++ri) {
         const std::string& chrom = genome[ri].first;
         const std::string& seq   = genome[ri].second;
         const uint32_t     len   = static_cast<uint32_t>(seq.size());
         if (len < static_cast<uint32_t>(k)) continue;
+        
+        uint64_t encoded   = 0;
+        int      count = 0;
 
-	//a vous de jouer
-	//1) iterate over each substring of length k
-	//2) check if the substring contains valid characters
-	//3) If so, add in hash table
-	
+        for (uint32_t i = 0; i < len; ++i) {
+            uint8_t base = ht.encodeBase(seq[i]);
+
+            if (base == INVALID) {
+                encoded = 0;
+                count = 0;
+                ++skipped;
+                continue;
+            }
+
+            encoded = ((encoded << 2) | static_cast<uint64_t>(base)) & mask;
+            ++count;
+
+            if (count >= k) {
+                uint32_t start = i - static_cast<uint32_t>(k) + 1;
+                GenomicPosition pos(chrom, start);
+
+                ht.insert(encoded, pos);   
+                ++inserted;
+            }            
+        }  
     }
     std::cerr << "[index] k=" << k
               << "  inserted=" << inserted
@@ -174,53 +195,87 @@ static void mapReads(const HashTable&  ht,
         const std::string& seq      = reads[ri].second;
         const int          rlen     = static_cast<int>(seq.size());
 
-
-	//a vous de jouer
-	//1) build a heap of heapsize
-
-
-        // 2) create a list of  (chrom_index, readStart) pairs already scored to avoid repeating them
-	///   The choice of the STL data structure is yours
-
+        //Declaration du HashTable
+        BestResultsHeap heap(heapSize);
+        std::vector<std::pair<std::string, long long> > already_scored;
 
         if (rlen >= k) {
             for (int i = 0; i + k <= rlen; ++i) {
                 std::string kmer = seq.substr(static_cast<uint32_t>(i),
                                               static_cast<uint32_t>(k));
 
-		//3) look up kmer in hash table
-		//4) iterate over each results in the linked list
-		//5) check to make sure the record was not found at the same spot
-		//6) Find the fasta record in the genome using
-		//                     const std::string* chromSeq = findChrom(genome, gp.chrom);
-		// if (!chromSeq) continue;
-		//7) score the alignment:
-		//  int mm, m;
-		//  scoreAlignment(seq, *chromSeq, readStart, mm, m);
-		//8) put results in heap, check if results is better or worse than
-		//   existing ones. If better, insert. If worse than the existing worst, discard.
-		
+                uint64_t modified_base = 0;
+                if (!ht.encodeKmer(kmer, modified_base)) {
+                    continue; 
+                }
+
+                //Rechercher le bucket correspondanr au hash du kmer en lecture (read)
+                const LinkedList* bucket = ht.lookup(modified_base);
+
+                //Rechercher 
+                const Node* current = bucket->first();
+                while (current != nullptr) {
+
+                    //S'assurer qu'on compare seulement avec les nodes du bon seed du genome
+                    //ignorant les nodes stockes par collision de hash
+                    if (current->m_kmerCode == modified_base) {
+                        const GenomicPosition& pos = current->m_position;
+
+                        long long read_start =
+                            static_cast<long long>(pos.offset) - static_cast<long long>(i);
+
+                        //Verifier si lu avant
+                        bool was_read = false;
+                        for (uint32_t j = 0; j < static_cast<uint32_t>(already_scored.size());
+                             ++j) {
+                            if (already_scored[j].first == pos.chrom &&
+                                already_scored[j].second == read_start) {
+                                was_read = true;
+                                break;
+                            }
+                        }
+
+                        if (!was_read) {
+                            //Sauver dans la liste des reads vus
+                            already_scored.push_back(std::make_pair(pos.chrom, read_start));
+
+                            const std::string* chromSeq = findChrom(genome, pos.chrom);
+                            if (!chromSeq) { continue; }
+                            int mm = 0;
+                            int m  = 0;
+                            scoreAlignment(seq, *chromSeq, read_start, mm, m);
+
+                            GenomicPosition candidate_pos(pos.chrom,
+                                    static_cast<size_t>(read_start < 0 ? 0 : read_start));
+
+                            AlignmentResult result(candidate_pos, mm, m);
+                            heap.insert(result);
+                            
+                        }
+                    }
+                    current = current->m_next;
+                }
             }
         }
 
-	//9) if heap is not empty, put best result, if heap is empty, put 0s:
-        // if (!heap.isEmpty()) {
-        //     AlignmentResult best = heap.getBest();
-        //     long long start = static_cast<long long>(best.position.offset);
-        //     long long end   = start + static_cast<long long>(rlen) - 1;
-        //     std::cout << readName
-        //               << "\t" << best.position.chrom
-        //               << "\t" << start
-        //               << "\t" << end
-        //               << "\t" << best.mismatches
-        //               << "\t" << best.matches
-        //               << "\t" << heap.size()
-        //               << "\n";
-        //     ++mapped;
-        // } else {
-        //     std::cout << readName << "\t*\t-1\t-1\t-1\t-1\t0\n";
-        //     ++unmapped;
-        // }
+        if (!heap.isEmpty()) {
+            AlignmentResult best = heap.getBest();
+            long long start = static_cast<long long>(best.m_position.offset);
+            long long end   = start + static_cast<long long>(rlen) - 1;
+
+            std::cout << readName
+                      << "\t" << best.m_position.chrom
+                      << "\t" << start
+                      << "\t" << end
+                      << "\t" << best.m_mismatches
+                      << "\t" << best.m_matches
+                      << "\t" << heap.getSize()
+                      << "\n";
+            ++mapped;
+        } else {
+            std::cout << readName << "\t*\t-1\t-1\t-1\t-1\t0\n";
+            ++unmapped;
+        }
     }
 
     std::cerr << "[map] mapped=" << mapped
@@ -341,16 +396,14 @@ int main(int argc, char* argv[]) {
     std::cerr << "[load] genome: " << genomePath << "\n";
     GenomeMap genome = readFasta(genomePath);
     std::cerr << "[load] " << genome.size() << " sequence(s)\n";
-
-    // A vous de jouer:
-    //HashTable ht(tableSize);   
-    //buildIndex(ht, genome, k);
+    
+    HashTable ht(tableSize);   
+    buildIndex(ht, genome, k);
 
     std::cerr << "[load] reads: " << readsPath << "\n";
     GenomeMap reads = readFasta(readsPath);
     std::cerr << "[load] " << reads.size() << " read(s)\n";
 
-    // A vous de jouer:
-    //mapReads(ht, genome, reads, k, heapSize);
+    mapReads(ht, genome, reads, k, heapSize);
     return 0;
 }
