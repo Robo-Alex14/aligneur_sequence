@@ -5,16 +5,22 @@
 #include <string>
 #include <cstdint>
 
-// Hash table: kmer (2-bit encoded) -> linked list of (kmerCode, GenomicPosition).
-// Bucket index  = kmerCode % capacity.
-// Collision chains store the kmerCode in every Node so lookup() callers can
-// skip nodes that belong to a different kmer sharing the same bucket.
-//
-// buckets_ is a raw heap-allocated array of LinkedList* (not a std::vector)
-// so manage the allocation explicitly.
+namespace dna{
+
+//Gere les LinkedList (buckets) et represente la table de dispersion   
 class HashTable {
 public:
-    // a vous de jouer
+    HashTable(const int& p_capacity);
+    ~HashTable();
+    
+    bool encodeKmer(const std::string& p_kmer, uint64_t& p_encoded) const;
+    uint8_t encodeBase(char p_base) const;
+    void insert(const uint64_t& p_encoded, const GenomicPosition& p_pos);
+    LinkedList* lookup(const uint64_t& p_encoded) const;  
+    
 private:
-    // a vous de jouer
+    LinkedList** m_buckets;
+    int m_capacity;
 };
+
+}
